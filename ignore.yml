@@ -1,0 +1,82 @@
+ignore_words:
+  - '"role":"'
+  - '"role": "'
+  - '"value": "'
+  - '"value":"'
+  - '"conversations":"'
+  - '"conversations": "'
+  - '"\\n"'
+  - '"\\n-"'
+  - '"\n"'
+  - '"\n-"'
+  - '"value"'
+  - '"from"'
+  - "human"
+  - "from"
+  - "value"
+  - "human"
+  - "gpt"
+  - "system"
+  - "conversations"
+  - "conversation"
+  - "id"
+  - "role"
+  - "content"
+  - "{"
+  - "}"
+  - "["
+  - "]"
+  - ":"
+  - ","
+  - '"'
+  - "+"
+  - "-"
+  - "*"
+  - "\\"
+  - "/"
+  - "?"
+  - "="
+  - "1"
+  - "2"
+  - "3"
+  - "4"
+  - "5"
+  - "6"
+  - "7"
+  - "8"
+  - "9"
+  - "0"
+  # Added single letters
+  - "a"
+  - "b"
+  - "c"
+  - "d"
+  - "e"
+  - "f"
+  - "g"
+  - "h"
+  - "i"
+  - "j"
+  - "k"
+  - "l"
+  - "m"
+  - "n"
+  - "o"
+  - "p"
+  - "q"
+  - "r"
+  - "s"
+  - "t"
+  - "u"
+  - "v"
+  - "w"
+  - "x"
+  - "y"
+  - "z"
+ignore_characters:
+  - "{"
+  - "}"
+  - "["
+  - "]"
+  - ":"
+  - ": "
