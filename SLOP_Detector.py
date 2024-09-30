@@ -1,14 +1,25 @@
 import sys
 import os
-import json
 import yaml
 from collections import Counter
 from tqdm import tqdm
 from transformers import AutoTokenizer
+import re
 
-def process_text(text):
-    words = text.split()
-    return [word.lower().strip('.,!?;"\'') for word in words]
+def load_yaml(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return yaml.safe_load(file)
+
+def load_penalty_yaml(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return yaml.safe_load(file)
+
+def process_text(text, ignore_words, ignore_characters):
+    for char in ignore_characters:
+        text = text.replace(char, ' ')
+    words = re.findall(r'\b\w+\b', text.lower())
+    ignore_words_set = set(word.lower() for word in ignore_words)
+    return [word for word in words if word not in ignore_words_set]
 
 def format_large_numbers(number):
     if number >= 1_000_000:
@@ -30,18 +41,6 @@ def count_phrases(text, phrases):
             phrase_counter[phrase] += count
     return phrase_counter
 
-def json_slop_detection(json_data):
-    gpt_texts = []
-    if isinstance(json_data, list):
-        for item in json_data:
-            if isinstance(item, dict) and 'conversations' in item:
-                for conv in item['conversations']:
-                    if isinstance(conv, dict) and conv.get('from') == 'gpt':
-                        gpt_value = conv.get('value')
-                        if gpt_value:
-                            gpt_texts.append(gpt_value)
-    return ' '.join(gpt_texts)
-
 def slop_to_score(slop_score):
     if slop_score < 0.0009:
         return 10
@@ -57,58 +56,84 @@ def slop_to_score(slop_score):
         return 5
     elif 0.005 <= slop_score < 0.009:
         return 4
-    elif 0.009 <= slop_score < 0.014:
+    elif 0.009 <= slop_score < 0.017:
         return 3
-    elif 0.014 <= slop_score < 0.02:
+    elif 0.017 <= slop_score < 0.18:
         return 2
     else:
         return 1
 
-def analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases):
+def apply_penalties(text, penalties):
+    penalty_score = 0.0
+    for penalty_class in penalties.values():
+        for penalty in penalty_class:
+            count = text.lower().count(penalty['phrase'].lower())
+            penalty_score += count * penalty['penalty']
+    return penalty_score
+
+def is_newline_json(filepath):
+    with open(filepath, 'r', encoding='utf-8') as file:
+        first_line = file.readline().strip()
+        return not first_line.endswith(',')
+
+def analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties):
     word_counter = Counter()
     total_words = 0
     gemma1_tokens = 0
     llama3_tokens = 0
     phrase_counter = Counter()
+    total_penalty = 0.0
 
-    file_ext = os.path.splitext(filepath)[1].lower()
-
+    print(f"Analyzing file: {filepath}")
     with open(filepath, 'r', encoding='utf-8') as file:
-        if file_ext in ['.json', '.jsonl']:
-            # Process JSON file
-            json_data = json.load(file)
-            text = json_slop_detection(json_data)
-            words = process_text(text)
+        lines = file.readlines()
+        for line in tqdm(lines, desc="Processing lines"):
+            text = line.strip()
+            words = process_text(text, ignore_words, ignore_characters)
             word_counter.update(words)
             total_words += len(words)
             gemma1_tokens += count_tokens(text, tokenizer_GEMMA1)
             llama3_tokens += count_tokens(text, tokenizer_LLAMA3)
             phrase_counter.update(count_phrases(text, phrases))
-        else:
-            # Process TXT file
-            lines = file.readlines()
-            for line in tqdm(lines, total=len(lines), desc="Processing TXT lines"):
-                text = line.strip()
-                words = process_text(text)
-                word_counter.update(words)
-                total_words += len(words)
-                gemma1_tokens += count_tokens(text, tokenizer_GEMMA1)
-                llama3_tokens += count_tokens(text, tokenizer_LLAMA3)
-                phrase_counter.update(count_phrases(text, phrases))
+            total_penalty += apply_penalties(text, penalties)
 
-    # Sort phrases by count in descending order
     sorted_phrase_counts = sorted(phrase_counter.items(), key=lambda x: x[1], reverse=True)
-
-    # Calculate total GPT-isms
     total_gptisms = sum(phrase_counter.values())
+    slop_score = (total_gptisms / total_words + total_penalty) if total_words > 0 else 0
 
-    # Calculate SLOP Score
-    slop_score = total_gptisms / total_words if total_words > 0 else 0
+    # Adjust the SLOP Coefficient based on the total word count
+    if total_words > 10000 and slop_score > 0.001:
+        adjusted_slop_score = adjust_slop_coefficient(slop_score, total_words)
+        slop_score = adjusted_slop_score
 
-    # Determine SLOP rating
     slop_rating = slop_to_score(slop_score)
 
     return word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts
+
+def adjust_slop_coefficient(slop_score, total_words):
+    # Define a reduction percentage (e.g., 10%)
+    reduction_percentage = 0.25
+
+    # Calculate the maximum reduction based on the total words
+    max_reduction = slop_score * reduction_percentage
+
+    # Calculate the number of word count chunks (e.g., every 10,000 words)
+    word_count_chunks = total_words // 10000
+
+    # Limit the number of chunks to avoid excessive reduction
+    word_count_chunks = min(word_count_chunks, 5)  # Adjust this limit as needed
+
+    # Apply reduction based on the number of chunks
+    reduction = word_count_chunks * max_reduction / 5
+
+    # Ensure the slop score doesn't become negative
+    adjusted_slop_score = max(slop_score - reduction, 0.0)
+
+    # Adjust the coefficient only if it's higher than 0.001
+    if adjusted_slop_score > 0.001:
+        adjusted_slop_score -= 0.0002
+
+    return adjusted_slop_score
 
 def export_statistics(output_dir, filename, word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts):
     output_filepath = os.path.join(output_dir, filename + '_Statistics.txt')
@@ -122,7 +147,7 @@ def export_statistics(output_dir, filename, word_counter, total_words, gemma1_to
         output_file.write(f"SLOP Coefficient: {slop_score:.6f}\n")
         output_file.write("\nGPT-ism found:\n")
         for phrase, count in sorted_phrase_counts:
-            output_file.write(f"  {phrase}: {format_large_numbers(count)}\n")
+            output_file.write(f"  {phrase}: {format_large_numbers(count)}\n")
         output_file.write("="*40 + "\n")
 
         for word, count in word_counter.most_common():
@@ -138,35 +163,37 @@ def main():
 
     input_path = sys.argv[1]
 
-    # Determine output directory name
-    if os.path.isdir(input_path):
+    if os.path.isfile(input_path):
+        base_filename = os.path.splitext(os.path.basename(input_path))[0]
+        output_dir = base_filename + '_STATS'
+    else:
         base_dir_name = os.path.basename(os.path.normpath(input_path))
         output_dir = base_dir_name + '_STATS'
-    else:
-        base_dir_name = os.path.basename(os.path.dirname(input_path))
-        output_dir = base_dir_name + '_STATS'
 
-    # Create the output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Load phrases from YAML file
-    with open('SLOP.yml', 'r', encoding='utf-8') as yaml_file:
-        phrases = yaml.safe_load(yaml_file)['phrases']
+    slop_data = load_yaml('SLOP.yml')
+    phrases = slop_data['phrases']
 
-    # Initialize tokenizers
+    ignore_data = load_yaml('ignore.yml')
+    ignore_words = set(ignore_data['ignore_words'])
+    ignore_characters = set(ignore_data['ignore_characters'])
+
+    penalty_data = load_penalty_yaml('penalty.yml')
+    penalties = penalty_data['penalties']
+
     tokenizer_GEMMA1 = AutoTokenizer.from_pretrained("SicariusSicariiStuff/2B_or_not_2B")
     tokenizer_LLAMA3 = AutoTokenizer.from_pretrained("SicariusSicariiStuff/LLAMA-3_8B_Unaligned")
 
-    # Process files
     if os.path.isfile(input_path):
-        word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(input_path, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases)
+        word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(input_path, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties)
         filename = os.path.splitext(os.path.basename(input_path))[0]
         export_statistics(output_dir, filename, word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts)
     else:
         for root, _, files in os.walk(input_path):
             for file in files:
                 filepath = os.path.join(root, file)
-                word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases)
+                word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties)
                 filename = os.path.splitext(file)[0]
                 export_statistics(output_dir, filename, word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts)
 
