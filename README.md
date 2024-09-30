@@ -1,7 +1,8 @@
 # SLOP_Detector
 
-(SLOP is now the the acronym for Superfluous Language Overuse Pattern)
 SLOP Detector is an analyzer based on dictionary for any JSON or text
+
+(SLOP is now the the acronym for Superfluous Language Overuse Pattern)
 
 # Installation (assuming you use linux):
 
