@@ -26,4 +26,5 @@ The result will be exported into a text file with the GPTisms found, and a slop 
   Let's nuke GPTisms together.
 
   Contributions and forks are welcomed.
+  
   2 Example files included, a Claude creative writing dataset and a text file story made with Dusk_Rainbow.
