@@ -1,0 +1,46 @@
+penalties:
+  class1:
+    - phrase: "The atmosphere"
+      penalty: 0.0001
+    - phrase: "for what felt like"
+      penalty: 0.0001
+    - phrase: "To meet his gaze"
+      penalty: 0.0001
+    - phrase: "To meet her gaze"
+      penalty: 0.0001
+    - phrase: "Dance"
+      penalty: 0.0001
+    - phrase: "Depths"
+      penalty: 0.0001
+    - phrase: "Palpable"
+      penalty: 0.0001
+    - phrase: "Eyes glinted"
+      penalty: 0.0001
+  class2:
+    - phrase: "Half-lidded eyes"
+      penalty: 0.0002
+    - phrase: "Perhaps, just perhaps"
+      penalty: 0.0002
+    - phrase: "Maybe, just maybe"
+      penalty: 0.0002
+  class3:
+    - phrase: "Dimly lit"
+      penalty: 0.0003
+    - phrase: "Ministration"
+      penalty: 0.0003
+    - phrase: "Body and soul"
+      penalty: 0.0003
+  class4:
+    - phrase: "Body and soul"
+      penalty: 0.0004
+    - phrase: "A testament to"
+      penalty: 0.0004
+    - phrase: "Rich tapestry"
+      penalty: 0.0004
+  class5:
+    - phrase: "a Symphony of"
+      penalty: 0.0005
+    - phrase: "Delve"
+      penalty: 0.0007
+    - phrase: "Shivers down"
+      penalty: 0.0009
