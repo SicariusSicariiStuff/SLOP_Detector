@@ -1,4 +1,4 @@
-# SLOP_Detector
+# SLOP_Detector (SLOP is now the the acronym for Superfluous Language Overuse Pattern)
 SLOP Detector and analyzer based on dictionary for shareGPT JSON and text
 
 # Installation (assuming you use linux):
