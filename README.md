@@ -1,6 +1,16 @@
 # SLOP_Detector
 SLOP Detector and analyzer based on dictionary for shareGPT JSON and text
 
+# Installation (assuming you use linux):
+
+```shell
+git clone https://github.com/SicariusSicariiStuff/SLOP_Detector.git
+cd SLOP_Detector
+python -m venv env
+source env/bin/activate
+pip install -r requirements.txt 
+```
+
 # Usage:
 
 ```shell
