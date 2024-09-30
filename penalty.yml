@@ -31,7 +31,7 @@ penalties:
     - phrase: "Body and soul"
       penalty: 0.0003
   class4:
-    - phrase: "Body and soul"
+    - phrase: "threatens to consume"
       penalty: 0.0004
     - phrase: "A testament to"
       penalty: 0.0004
