@@ -35,10 +35,12 @@ def count_tokens(text, tokenizer):
 
 def count_phrases(text, phrases):
     phrase_counter = Counter()
-    for phrase in phrases:
-        count = text.lower().count(phrase.lower())
+    for pattern in phrases:
+        compiled_regex = re.compile(pattern, re.IGNORECASE)
+        matches = compiled_regex.findall(text.lower())
+        count = len(matches)
         if count > 0:
-            phrase_counter[phrase] += count
+            phrase_counter[pattern] += count
     return phrase_counter
 
 def slop_to_score(slop_score):
