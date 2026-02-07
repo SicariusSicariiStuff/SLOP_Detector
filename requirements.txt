@@ -2,3 +2,4 @@ PyYAML
 tqdm
 transformers
 flask
+matplotlib
