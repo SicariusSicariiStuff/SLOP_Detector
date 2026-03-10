@@ -33,14 +33,41 @@ def count_tokens(text, tokenizer):
     tokens = tokenizer.encode(text, add_special_tokens=False)
     return len(tokens)
 
-def count_phrases(text, phrases):
+# CHANGED: Build a "safe phrase" regex:
+# - Escapes special regex chars from phrase text
+# - Converts spaces to \s+ to match variable spacing
+# - Adds word-boundary-like guards to prevent substring matches
+#   (e.g., "ministration" won't match inside "administration")
+def build_phrase_regex(phrase: str):
+    phrase = phrase.strip()
+    escaped = re.escape(phrase)
+    escaped = escaped.replace(r"\ ", r"\s+")
+    pattern = rf"(?<!\w){escaped}(?!\w)"
+    return re.compile(pattern, re.IGNORECASE)
+
+# CHANGED: Precompile phrase patterns once for speed and consistency
+def compile_phrases(phrases):
+    return [(phrase, build_phrase_regex(phrase)) for phrase in phrases]
+
+# CHANGED: Precompile penalty phrase patterns once and store penalty values
+def compile_penalties(penalties):
+    compiled = []
+    for penalty_class in penalties.values():
+        for penalty in penalty_class:
+            compiled.append({
+                'phrase': penalty['phrase'],
+                'penalty': penalty['penalty'],
+                'regex': build_phrase_regex(penalty['phrase'])
+            })
+    return compiled
+
+# CHANGED: Use precompiled regex patterns instead of recompiling per line
+def count_phrases(text, compiled_phrases):
     phrase_counter = Counter()
-    for pattern in phrases:
-        compiled_regex = re.compile(pattern, re.IGNORECASE)
-        matches = compiled_regex.findall(text.lower())
-        count = len(matches)
+    for phrase, compiled_regex in compiled_phrases:
+        count = sum(1 for _ in compiled_regex.finditer(text))
         if count > 0:
-            phrase_counter[pattern] += count
+            phrase_counter[phrase] += count
     return phrase_counter
 
 def slop_to_score(slop_score):
@@ -65,12 +92,13 @@ def slop_to_score(slop_score):
     else:
         return 1
 
-def apply_penalties(text, penalties):
+# CHANGED: Replace substring count() with regex-based exact phrase counting
+# to avoid false positives inside larger words/phrases
+def apply_penalties(text, compiled_penalties):
     penalty_score = 0.0
-    for penalty_class in penalties.values():
-        for penalty in penalty_class:
-            count = text.lower().count(penalty['phrase'].lower())
-            penalty_score += count * penalty['penalty']
+    for penalty in compiled_penalties:
+        count = sum(1 for _ in penalty['regex'].finditer(text))
+        penalty_score += count * penalty['penalty']
     return penalty_score
 
 def is_newline_json(filepath):
@@ -78,7 +106,7 @@ def is_newline_json(filepath):
         first_line = file.readline().strip()
         return not first_line.endswith(',')
 
-def analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties):
+def analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, compiled_phrases, ignore_words, ignore_characters, compiled_penalties):
     word_counter = Counter()
     total_words = 0
     gemma1_tokens = 0
@@ -87,17 +115,18 @@ def analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_w
     total_penalty = 0.0
 
     print(f"Analyzing file: {filepath}")
+
+    # CHANGED: Stream lines instead of readlines() to reduce memory usage
     with open(filepath, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
-        for line in tqdm(lines, desc="Processing lines"):
+        for line in tqdm(file, desc="Processing lines"):
             text = line.strip()
             words = process_text(text, ignore_words, ignore_characters)
             word_counter.update(words)
             total_words += len(words)
             gemma1_tokens += count_tokens(text, tokenizer_GEMMA1)
             llama3_tokens += count_tokens(text, tokenizer_LLAMA3)
-            phrase_counter.update(count_phrases(text, phrases))
-            total_penalty += apply_penalties(text, penalties)
+            phrase_counter.update(count_phrases(text, compiled_phrases))
+            total_penalty += apply_penalties(text, compiled_penalties)
 
     sorted_phrase_counts = sorted(phrase_counter.items(), key=lambda x: x[1], reverse=True)
     total_gptisms = sum(phrase_counter.values())
@@ -149,11 +178,11 @@ def export_statistics(output_dir, filename, word_counter, total_words, gemma1_to
         output_file.write(f"SLOP Coefficient: {slop_score:.6f}\n")
         output_file.write("\nGPT-ism found:\n")
         for phrase, count in sorted_phrase_counts:
-            output_file.write(f"  {phrase}: {format_large_numbers(count)}\n")
-        output_file.write("="*40 + "\n")
+            output_file.write(f"  {phrase}: {format_large_numbers(count)}\n")
+        output_file.write("=" * 40 + "\n")
 
         for word, count in word_counter.most_common():
-            percentage = (count / total_words) * 100
+            percentage = (count / total_words) * 100 if total_words > 0 else 0.0
             output_file.write(f"{word:<20}{format_large_numbers(count):<10}{percentage:.2f}%\n")
 
     print(f"Statistics exported to {output_filepath}")
@@ -184,18 +213,38 @@ def main():
     penalty_data = load_penalty_yaml('penalty.yml')
     penalties = penalty_data['penalties']
 
+    # CHANGED: Precompile phrase/penalty regex once before file processing
+    compiled_phrases = compile_phrases(phrases)
+    compiled_penalties = compile_penalties(penalties)
+
     tokenizer_GEMMA1 = AutoTokenizer.from_pretrained("SicariusSicariiStuff/2B_or_not_2B")
     tokenizer_LLAMA3 = AutoTokenizer.from_pretrained("SicariusSicariiStuff/LLAMA-3_8B_Unaligned")
 
     if os.path.isfile(input_path):
-        word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(input_path, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties)
+        word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(
+            input_path,
+            tokenizer_GEMMA1,
+            tokenizer_LLAMA3,
+            compiled_phrases,
+            ignore_words,
+            ignore_characters,
+            compiled_penalties
+        )
         filename = os.path.splitext(os.path.basename(input_path))[0]
         export_statistics(output_dir, filename, word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts)
     else:
         for root, _, files in os.walk(input_path):
             for file in files:
                 filepath = os.path.join(root, file)
-                word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(filepath, tokenizer_GEMMA1, tokenizer_LLAMA3, phrases, ignore_words, ignore_characters, penalties)
+                word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts = analyze_file(
+                    filepath,
+                    tokenizer_GEMMA1,
+                    tokenizer_LLAMA3,
+                    compiled_phrases,
+                    ignore_words,
+                    ignore_characters,
+                    compiled_penalties
+                )
                 filename = os.path.splitext(file)[0]
                 export_statistics(output_dir, filename, word_counter, total_words, gemma1_tokens, llama3_tokens, total_gptisms, slop_score, slop_rating, sorted_phrase_counts)
 
